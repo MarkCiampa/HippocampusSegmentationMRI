@@ -1,7 +1,9 @@
 import os
+#from config import SemSegMRIConfig
 
 logs_folder = "logs"
 os.makedirs(logs_folder, exist_ok=True)
+
 
 base_dataset_dir = os.path.join("datasets","Task04_Hippocampus")
 train_images_folder = os.path.join(base_dataset_dir, "imagesTr")

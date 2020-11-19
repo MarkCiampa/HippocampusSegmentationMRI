@@ -119,12 +119,12 @@ class FinalConv(nn.Module):
         self.bn = nn.BatchNorm3d(out_channels)
         self.conv_1x1 = nn.Conv3d(in_channels=out_channels, out_channels=num_outs, kernel_size=1, stride=1, padding=0)
         self.bn_1x1 = nn.BatchNorm3d(num_outs)
-        self.final = F.softmax
+        #self.final = F.softmax
     def forward(self, x):
         layer = F.relu(self.bn(self.conv(x)))
         layer = torch.add(layer, x)
         layer = self.bn_1x1(self.conv_1x1(layer))
-        layer = self.final(layer, dim=1)
+       # layer = self.final(layer, dim=1)
         return layer
 
 

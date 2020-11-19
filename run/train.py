@@ -12,6 +12,7 @@
 import argparse
 import os
 import sys
+
 import numpy as np
 import torch
 import torch.optim as optim
@@ -29,20 +30,27 @@ from config.config import SemSegMRIConfig
 from config.paths import logs_folder
 from semseg.train import train_model, val_model
 from semseg.data_loader import TorchIODataLoader3DTraining, TorchIODataLoader3DValidation
+from semseg.weight import calc_weight
 from models.vnet3d import VNet3D
-from models.unet3d import UNet
+from models.UNET3D import UNet
+from models.FDUnet import FDUnet
+
+
 
 
 def get_net(config):
     name = config.net
-    assert name in ['unet', 'vnet'], "Network Name not valid or not supported! Use one of ['unet', 'vnet']"
+    assert name in ['unet', 'vnet', 'denseUnet'], "Network Name not valid or not supported! Use one of ['unet', 'vnet']"
     if name == 'vnet':
         return VNet3D(num_outs=config.num_outs, channels=config.num_channels)
     elif name == 'unet':
         return UNet(num_channels=1, num_outs=config.num_outs)
+    elif name == 'denseUnet':
+        return FDUnet(num_channels=1, num_outs=config.num_outs)
 
 
 def run(config):
+
     ##########################
     # Check training set
     ##########################
@@ -52,6 +60,19 @@ def run(config):
     # Config
     ##########################
     print_config(config)
+    net_folder = str(config.net)
+    loss_folder = str(config.loss)
+    
+    
+    ##########################
+    # Create folders for training and test
+    ##########################
+    model_path = os.path.join(logs_folder,net_folder)
+    os.makedirs(model_path, exist_ok=True)
+    model_path = os.path.join(model_path, loss_folder)
+    os.makedirs(model_path, exist_ok=True)
+    model_path_gen = model_path
+    
 
     ##########################
     # Check Torch DataLoader and Net
@@ -70,9 +91,27 @@ def run(config):
         multi_dices_crossval = list()
         mean_multi_dice_crossval = list()
         std_multi_dice_crossval = list()
-
         kf = KFold(n_splits=config.num_folders)
+
+        if(config.loss == 'WCELoss'):
+            print()
+            weights = calc_weight(kf)
+            print()
+            print()
+       
+
+        
         for idx, (train_index, val_index) in enumerate(kf.split(config.train_images)):
+            if(config.loss == 'WCELoss'):
+                weight= weights[idx]
+
+                weight=torch.tensor(weight)
+                weight=weight.float()
+                weight= weight.to(cuda_dev)
+        
+
+        
+
             print_folder(idx, train_index, val_index)
             config_crossval = train_val_split_config(config, train_index, val_index)
 
@@ -83,9 +122,13 @@ def run(config):
             config_crossval.lr = 0.01
             optimizer = optim.Adam(net.parameters(), lr=config_crossval.lr)
             train_data_loader_3D = TorchIODataLoader3DTraining(config_crossval)
-            net = train_model(net, optimizer, train_data_loader_3D,
-                              config_crossval, device=cuda_dev, logs_folder=logs_folder)
-
+            if(config.loss == 'WCELoss'):
+                
+                net = train_model(net, optimizer, train_data_loader_3D,
+                              config_crossval,model_path, weights=weight, device=cuda_dev, logs_folder=logs_folder) 
+            else:
+                net = train_model(net, optimizer, train_data_loader_3D,
+                                    config_crossval,model_path, device=cuda_dev, logs_folder=logs_folder)
             ##########################
             # Validation (cross-validation)
             ##########################
@@ -95,7 +138,7 @@ def run(config):
             multi_dices_crossval.append(multi_dices)
             mean_multi_dice_crossval.append(mean_multi_dice)
             std_multi_dice_crossval.append(std_multi_dice)
-            torch.save(net, os.path.join(logs_folder, "model_folder_{:d}.pt".format(idx)))
+            torch.save(net, os.path.join(model_path, "model_folder_{:d}.pt".format(idx)))
 
         ##########################
         # Saving Validation Results
@@ -110,13 +153,25 @@ def run(config):
     # Training (full training set)
     ##########################
     net = get_net(config)
+    if(config.loss == 'WCELoss'):
+        weight= weights[len(weights)-1]
+        weight=torch.tensor(weight)
+        weight=weight.float()
+        weight= weight.to(cuda_dev)
     config.lr = 0.01
     optimizer = optim.Adam(net.parameters(), lr=config.lr)
     train_data_loader_3D = TorchIODataLoader3DTraining(config)
-    net = train_model(net, optimizer, train_data_loader_3D,
-                      config, device=cuda_dev, logs_folder=logs_folder)
+    if(config.loss == 'WCELoss'):
+                net = train_model(net, optimizer, train_data_loader_3D,
+                              config,model_path,  weights=weight, device=cuda_dev, logs_folder=logs_folder) 
+    else:
+                net = train_model(net, optimizer, train_data_loader_3D,
+                                    config, model_path, device=cuda_dev, logs_folder=logs_folder)
 
-    torch.save(net,os.path.join(logs_folder,"model.pt"))
+                                
+    torch.save(net,os.path.join(model_path,"model.pt"))
+
+    return model_path
 
 
 ############################
@@ -160,6 +215,17 @@ if __name__ == "__main__":
         default=config.lr, type=float,
         help="Learning Rate"
     )
+    parser.add_argument(
+        "--loss",
+        default='MDLoss',
+        help="Specify the loss function to user [MDLoss| CELoss | FLoss | MTLoss]"
+    )
+    parser.add_argument(
+        "--folders",
+        default=config.num_folders, type=int,
+        help="Specify the number of folders for Cross Validation"
+    )
+
 
     args = parser.parse_args()
     config.net = args.net
@@ -168,5 +234,7 @@ if __name__ == "__main__":
     config.val_epochs = args.val_epochs
     config.num_workers = args.workers
     config.lr = args.lr
+    config.loss = args.loss
+    config.num_folders = args.folders
 
     run(config)

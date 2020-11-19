@@ -16,7 +16,7 @@ import os
 from sklearn.model_selection import KFold
 import argparse
 import sys
-
+from medpy.metric.binary import hd as hd
 ##########################
 # Local Imports
 ##########################
@@ -34,7 +34,8 @@ from semseg.utils import multi_dice_coeff
 from sklearn.metrics import confusion_matrix, f1_score
 
 
-def run(logs_dir="logs", write_out=False, plot_conf=False):
+
+def run(logs_dir, write_out=False, plot_conf=False):
     ##########################
     # Config
     ##########################
@@ -52,6 +53,7 @@ def run(logs_dir="logs", write_out=False, plot_conf=False):
     # net.load_state_dict(torch.load(path_net))
 
     path_net = os.path.join(logs_dir,"model.pt")
+    print(path_net)
     path_nets_crossval = [os.path.join(logs_dir,"model_folder_{:d}.pt".format(idx))
                           for idx in range(config.num_folders)]
 
@@ -60,8 +62,14 @@ def run(logs_dir="logs", write_out=False, plot_conf=False):
     ###########################
     use_nib = True
     pad_ref = (48,64,48)
+    
     multi_dices = list()
+    array_dices = []
+    array_hd = list()
     f1_scores = list()
+    f1_scores_anterior = list()
+    f1_scores_posterior = list()
+    accuracy_list = list()
 
     os.makedirs(train_prediction_folder, exist_ok=True)
     os.makedirs(test_prediction_folder, exist_ok=True)
@@ -101,7 +109,7 @@ def run(logs_dir="logs", write_out=False, plot_conf=False):
                 train_image_path = os.path.join(train_or_test_images_folder, train_image)
 
                 if use_nib:
-                    train_image_np, affine = nii_load(train_image_path)
+                    train_image_np, _ ,  affine = nii_load(train_image_path)
                 else:
                     train_image_np, meta_sitk = sitk_load(train_image_path)
 
@@ -121,7 +129,7 @@ def run(logs_dir="logs", write_out=False, plot_conf=False):
                     train_label = train_labels_crossval[idx]
                     train_label_path = os.path.join(train_labels_folder, train_label)
                     if use_nib:
-                        train_label_np, _ = nii_load(train_label_path)
+                        train_label_np, voxel_spacing, _ = nii_load(train_label_path)
                     else:
                         train_label_np, _ = sitk_load(train_label_path)
 
@@ -129,33 +137,59 @@ def run(logs_dir="logs", write_out=False, plot_conf=False):
                                                   np.expand_dims(outputs_np,axis=0),
                                                   config.num_outs)
                     print("Multi Class Dice Coeff = {:.4f}".format(multi_dice))
+                    if(multi_dice!=0):
+                      hausdorff_distance = hd(outputs_np, train_label_np, voxelspacing=voxel_spacing)
+                      print("Hausdorff distance = {:.4f} mm".format(hausdorff_distance))
+                    array_dices.append(multi_dice)
+                    
+                    NAME = "dices"
+                    complete_path = os.path.join(path,NAME)
+                    np.save(complete_path, array_dices) 
+
                     multi_dices.append(multi_dice)
+                    array_hd.append(hausdorff_distance)
+                    
+
 
                     f1_score_idx = f1_score(train_label_np.flatten(), outputs_np.flatten(), average=None)
                     cm_idx = confusion_matrix(train_label_np.flatten(), outputs_np.flatten())
+                    f1_scores_anterior.append(f1_score_idx[1])
+                    f1_scores_posterior.append(f1_score_idx[2])
                     train_confusion_matrix += cm_idx
                     f1_scores.append(f1_score_idx)
 
             if not is_training:
                 break
 
-    print_metrics(multi_dices, f1_scores, train_confusion_matrix)
+    print_metrics(multi_dices,array_hd, f1_scores, train_confusion_matrix, path)
+    NAME1 = "anterior"
+    NAME2 = "posterior"
+    complete_path1 = os.path.join(path, NAME1)
+    complete_path2 = os.path.join(path, NAME2)
+    f1_scores_anterior_np = np.array(f1_scores_anterior)
+    f1_scores_posterior_np = np.array(f1_scores_posterior)
+    np.save(complete_path1,f1_scores_anterior_np)
+    np.save(complete_path2, f1_scores_posterior_np)
 
     if plot_conf:
         plot_confusion_matrix(train_confusion_matrix,
                               target_names=None, title='Cross-Validation Confusion matrix',
                               cmap=None, normalize=False, already_normalized=False,
-                              path_out="images/conf_matrix_no_norm_no_augm_torchio.png")
+                              name_file="conf_matrix_no_norm_no_augm_torchio.png",
+                              path_out=path)
         plot_confusion_matrix(train_confusion_matrix,
                               target_names=None, title='Cross-Validation Confusion matrix (row-normalized)',
                               cmap=None, normalize=True, already_normalized=False,
-                              path_out="images/conf_matrix_normalized_row_no_augm_torchio.png")
+                              name_file="conf_matrix_no_norm_no_augm_torchio_row.png",
+                              path_out=path)
 
 
 ############################
 # MAIN
 ############################
 if __name__ == "__main__":
+
+    config = SemSegMRIConfig()
     parser = argparse.ArgumentParser(description="Run Validation for Hippocampus Segmentation")
     parser.add_argument(
         "-V",
@@ -177,9 +211,22 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--net",
-        default='vnet',
+        default='denseUnet',
         help="Specify the network to use [unet | vnet] ** FOR FUTURE RELEASES **"
     )
-
+    parser.add_argument(
+        "--loss",
+        default='MDLoss',
+        help="Specify the loss function to user [MDLoss | CELoss | WCELoss | MTLoss]"
+    )
+    parser.add_argument(
+        "--folders",
+        default=config.num_folders, type=int,
+        help="Specify the number of folders for Cross Validation"
+    )
     args = parser.parse_args()
-    run(logs_dir=args.dir, write_out=args.write, plot_conf=args.verbose)
+    loss_name = args.loss
+    config.num_folders = args.folders
+    
+    path = os.path.join(args.dir, args.net, loss_name)
+    run(logs_dir=path, write_out=args.write, plot_conf=args.verbose)

@@ -3,14 +3,22 @@ import time
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 from semseg.loss import get_multi_dice_loss
 from config.config import LEARNING_RATE_REDUCTION_FACTOR
 from semseg.utils import multi_dice_coeff
+from config.config import *
 
 
-def train_model(net, optimizer, train_data, config, device=None, logs_folder=None):
 
+
+
+
+
+def train_model(net, optimizer, train_data, config, model_path, weights=None, device=None, logs_folder=None, is_complete=False):
+    name = config.loss
     print('Start training...')
     net = net.to(device)
     # train loop
@@ -33,12 +41,32 @@ def train_model(net, optimizer, train_data, config, device=None, logs_folder=Non
             inputs, labels = data['t1']['data'], data['label']['data']
             if config.cuda:
                 inputs, labels = inputs.cuda(), labels.cuda()
-
+            
             # forward pass
             outputs = net(inputs)
+            if name == 'MDLoss':
+                outputs = F.softmax(outputs, dim=1)
+            elif name == 'MTLoss':
+                outputs = F.softmax(outputs, dim=1)
+            
+            
 
-            # get multi dice loss
-            loss = get_multi_dice_loss(outputs, labels, device=device)
+            if name == 'MDLoss':
+                loss = get_multi_loss(outputs, labels, loss=name, device=device)
+        
+            elif name == 'CELoss':
+                loss_function = nn.CrossEntropyLoss()
+                labels = labels[:,0]
+                loss = loss_function(outputs, labels.long())
+                
+            elif name == 'WCELoss':
+                loss_function = nn.CrossEntropyLoss(weights)
+                labels = labels[:,0]
+                loss = loss_function(outputs, labels.long())
+                
+            elif name == 'MTLoss':
+                loss = get_multi_loss(outputs, labels, loss=name, device=device)
+                
 
             # empty gradients, perform backward pass and update weights
             optimizer.zero_grad()
@@ -46,14 +74,20 @@ def train_model(net, optimizer, train_data, config, device=None, logs_folder=Non
             optimizer.step()
 
             # save and print statistics
+            
             running_loss += loss.data
-
+            
+            
+            
         epoch_end_time = time.time()
         epoch_elapsed_time = epoch_end_time - epoch_start_time
 
         # print statistics
-        print('  [Epoch {:04d}] - Train dice loss: {:.4f} - Time: {:.1f}'
-              .format(epoch + 1, running_loss / (i + 1), epoch_elapsed_time))
+        print('  [Epoch {:04d}] - Train loss: {:.4f} - Time: {:.1f}'.format(epoch + 1, running_loss / (i + 1), epoch_elapsed_time))
+        
+       
+    
+
 
         # switch to eval mode
         net.eval()
@@ -61,11 +95,12 @@ def train_model(net, optimizer, train_data, config, device=None, logs_folder=Non
         # only validate every 'val_epochs' epochs
         if epoch % config.val_epochs == 0:
             if logs_folder is not None:
-                checkpoint_path = os.path.join(logs_folder, 'model_epoch_{:04d}.pht'.format(epoch))
+                checkpoint_path = os.path.join(model_path, 'model_epoch_{:04d}.pht'.format(epoch))
                 torch.save(net.state_dict(), checkpoint_path)
 
     print('Training ended!')
     return net
+    
 
 
 def val_model(net, val_data, config, device=None):
@@ -94,5 +129,6 @@ def val_model(net, val_data, config, device=None):
     multi_dices_np = np.array(multi_dices)
     mean_multi_dice = np.mean(multi_dices_np)
     std_multi_dice = np.std(multi_dices_np)
+    
     print("Multi-Dice: {:.4f} +/- {:.4f}".format(mean_multi_dice,std_multi_dice))
     return multi_dices, mean_multi_dice, std_multi_dice

@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from medpy.metric.binary import hd
 
 
 # from config.paths import train_images_folder, train_labels_folder
@@ -16,6 +18,7 @@ def multi_dice_coeff(gt, pred, num_classes):
     for cls in range(1, num_classes):
         outputs_ = outputs[:, cls]
         labels_  = labels[:, cls]
+       
         dice_ = dice_coeff(outputs_, labels_)
         dices.append(dice_)
     return sum(dices) / (num_classes-1)
@@ -57,3 +60,11 @@ def zero_pad_3d_image(image, pad_ref=(64,64,64), value_to_pad = 0):
         image_padded = value_to_pad * np.ones(pad_ref)
     image_padded[:image.shape[0],:image.shape[1],:image.shape[2]] = image
     return image_padded
+
+
+
+
+
+
+
+

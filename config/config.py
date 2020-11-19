@@ -1,7 +1,8 @@
 import os
 from config.augm import train_transform, val_transform
-from config.paths import train_images_folder, train_labels_folder, train_images, train_labels
+from config.paths import train_images_folder, train_labels_folder, train_images, train_labels, logs_folder
 from semseg.data_loader import SemSegConfig
+
 
 
 class SemSegMRIConfig(SemSegConfig):
@@ -21,12 +22,16 @@ class SemSegMRIConfig(SemSegConfig):
     val_epochs = epochs // 5
     cuda = True
     num_outs = 3
-    do_crossval = True
+    do_crossval = False
     num_folders = 5
     num_channels = 8
     transform_train = train_transform
     transform_val = val_transform
     net = "vnet"
+    loss = "MDLoss"
+
 
 
 LEARNING_RATE_REDUCTION_FACTOR = 2
+
+

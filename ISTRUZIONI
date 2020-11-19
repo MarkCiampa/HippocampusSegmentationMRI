@@ -1,0 +1,12 @@
+E POSSIBILE ACCEDERE AL COLAB DEL PROGETTO ATTRAVERSO QUESTO LINK (SI NECESSITA IL CARICAMNETO DELLA CARTELLA HippocamputSegmentationMRI all'interno del proprio spazio google Drive)
+
+https://colab.research.google.com/drive/16q7EWgWCOHrJMdCESV3QdoghjGD10NU3#scrollTo=njclvrE0aUOj
+
+Versione di python richiesta: 3.6
+
+Per avviare il framework eseguire i comandi in ordine:
+1) python3 setup.py install
+2) python3 run/download.py (se il dataset non è presente nella cartella "dataset")
+3) python3 run/train.py --net --loss --epoch --batch
+4) python3 run/validate.py --net  --loss
+5) python3 run/test --best_net --best_loss 

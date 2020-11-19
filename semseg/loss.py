@@ -1,4 +1,9 @@
 import torch
+from config.config import SemSegMRIConfig
+import numpy as np
+
+
+
 
 
 def dice(outputs, labels):
@@ -10,6 +15,21 @@ def dice(outputs, labels):
     dice_coeff = (2 * intersect + eps) / (union + eps)
     dice_loss = - dice_coeff + 1
     return dice_loss
+
+
+def tversky(outputs, labels):
+    eps = 1e-5
+    alfa = 0.2
+    beta = 0.8
+    outputs, labels = outputs.float(), labels.float()
+    prob_0 = outputs.flatten()
+    prob_1 = 1-prob_0
+    gt_0 = labels.flatten()
+    gt_1 = 1-gt_0
+    tversky = (torch.dot(prob_0, gt_0)+eps)/(torch.dot(prob_0, gt_0)+ alfa * torch.dot(prob_0, gt_1)+ beta * torch.dot(prob_1, gt_0))
+    tversky_loss = - tversky +1
+
+    return tversky_loss
 
 
 def one_hot_encode(label, num_classes):
@@ -31,7 +51,7 @@ def one_hot_encode(label, num_classes):
     return label_ohe
 
 
-def dice_n_classes(outputs, labels, do_one_hot=False, get_list=False, device=None):
+def n_classes(outputs, labels, loss, do_one_hot=False, get_list=False, device=None):
     """
     Computes the Multi-class classification Dice Coefficient.
     It is computed as the average Dice for all classes, each time
@@ -53,7 +73,15 @@ def dice_n_classes(outputs, labels, do_one_hot=False, get_list=False, device=Non
     for cls in range(1, num_classes):
         outputs_ = outputs[:, cls].unsqueeze(dim=1)
         labels_  = labels[:, cls].unsqueeze(dim=1)
-        dice_ = dice(outputs_, labels_)
+
+        if(loss == "MTLoss"):
+        	dice_ = tversky(outputs_, labels_)
+
+        elif(loss == "FLoss"):
+            dice_ = focal_loss(outputs_, labels_)
+
+        else:
+        	dice_ = dice(outputs_, labels_)
         dices.append(dice_)
     if get_list:
         return dices
@@ -61,6 +89,7 @@ def dice_n_classes(outputs, labels, do_one_hot=False, get_list=False, device=Non
         return sum(dices) / (num_classes-1)
 
 
-def get_multi_dice_loss(outputs, labels, device=None):
+def get_multi_loss(outputs, labels, loss, device=None):
     labels = labels[:, 0]
-    return dice_n_classes(outputs, labels, do_one_hot=True, get_list=False, device=device)
+    loss = loss
+    return n_classes(outputs, labels, loss, do_one_hot=True, get_list=False, device=device)

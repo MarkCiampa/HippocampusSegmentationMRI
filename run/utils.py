@@ -9,6 +9,10 @@ import SimpleITK as sitk
 from semseg.data_loader import TorchIODataLoader3DTraining
 from models.vnet3d import VNet3D
 from semseg.utils import zero_pad_3d_image, z_score_normalization
+from config.config import *
+
+
+
 
 
 def print_config(config):
@@ -80,15 +84,16 @@ def train_val_split_config(config, train_index, val_index):
 
 def nii_load(train_image_path):
     train_image_nii = nib.load(str(train_image_path), mmap=False)
+    voxel_spacing = train_image_nii.header.get_zooms()
     train_image_np = train_image_nii.get_fdata(dtype=np.float32)
     affine = train_image_nii.affine
-    return train_image_np, affine
+    return train_image_np, voxel_spacing, affine
 
 
 def sitk_load(train_image_path):
     train_image_sitk = sitk.ReadImage(train_image_path)
     train_image_np = sitk.GetArrayFromImage(train_image_sitk)
-    origin, spacing, direction = train_image_sitk.GetOrigin(), \
+    origin, spacing, direction = train_image_sitk.GetOerigin(), \
                                  train_image_sitk.GetSpacing(), train_image_sitk.GetDirection()
     meta_sitk = {
         'origin'   : origin,
@@ -135,22 +140,32 @@ def torch5d_to_np3d(outputs, original_shape):
     return outputs_np
 
 
-def print_metrics(multi_dices, f1_scores, train_confusion_matrix):
+def print_metrics(multi_dices, array_hd, f1_scores, train_confusion_matrix, path):
+    NAME0 = "dices"
+    complete_path0 = os.path.join(path,NAME0)
     multi_dices_np = np.array(multi_dices)
+    np.save(complete_path0, multi_dices_np)
+    
     mean_multi_dice = np.mean(multi_dices_np)
     std_multi_dice = np.std(multi_dices_np, ddof=1)
-
+    
     f1_scores = np.array(f1_scores)
-
+    
     f1_scores_anterior_mean = np.mean(f1_scores[:, 1])
     f1_scores_anterior_std = np.std(f1_scores[:, 1], ddof=1)
 
     f1_scores_posterior_mean = np.mean(f1_scores[:, 2])
     f1_scores_posterior_std = np.std(f1_scores[:, 2], ddof=1)
 
+    array_hd_np = np.array(array_hd)
+
+    hd_mean = np.mean(array_hd_np)
+
     print("+================================+")
     print("Multi Class Dice           ===> {:.4f} +/- {:.4f}".format(mean_multi_dice, std_multi_dice))
     print("Images with Dice > 0.8     ===> {} on {}".format((multi_dices_np > 0.8).sum(), multi_dices_np.size))
+    print("+================================+")
+    print("Hausdorff distance          ===> {:.4f} mm".format(hd_mean))
     print("+================================+")
     print("Hippocampus Anterior Dice  ===> {:.4f} +/- {:.4f}".format(f1_scores_anterior_mean, f1_scores_anterior_std))
     print("Hippocampus Posterior Dice ===> {:.4f} +/- {:.4f}".format(f1_scores_posterior_mean, f1_scores_posterior_std))
@@ -175,6 +190,7 @@ def plot_confusion_matrix(cm,
                           cmap=None,
                           normalize=True,
                           already_normalized=False,
+                          name_file = None,
                           path_out=None):
     """
     given a sklearn confusion matrix (cm), make a nice plot
@@ -246,5 +262,8 @@ def plot_confusion_matrix(cm,
     plt.ylabel('True label')
     plt.xlabel('Predicted label\naccuracy={:0.4f}; misclass={:0.4f}'.format(accuracy, misclass))
     if path_out is not None:
-        plt.savefig(path_out)
+        final_path = os.path.join(path_out,name_file)
+        plt.savefig(final_path)
     plt.show()
+
+
